@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0a8f4e">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg">
+<title>LiveScore Football</title>
+<style>
+:root{--bg:#f4f6f8;--card:#fff;--tx:#10161c;--mu:#6b7785;--ac:#0a8f4e;--ln:#e3e8ed;--lv:#e5372b}
+@media (prefers-color-scheme:dark){:root{--bg:#0d1217;--card:#161d25;--tx:#eef2f6;--mu:#8b97a4;--ac:#2ecc7a;--ln:#26303a;color-scheme:dark}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+header{position:sticky;top:0;background:var(--bg);z-index:5;padding:10px 12px 4px;border-bottom:1px solid var(--ln)}
+h1{font-size:19px;margin:0 0 8px;display:flex;justify-content:space-between;align-items:center}
+.bt button{border:1px solid var(--ln);background:var(--card);color:var(--tx);border-radius:16px;padding:5px 11px;font-size:12px;font-weight:600;margin-left:6px}
+.tabs,.days{display:flex;gap:6px;overflow-x:auto;padding-bottom:7px}
+.tabs button,.days button{flex:none;border:1px solid var(--ln);background:var(--card);color:var(--tx);padding:7px 12px;border-radius:20px;font-size:13px;font-weight:600}
+.days button{border:0;background:none;color:var(--mu);padding:5px 10px}
+.tabs button.on{background:var(--ac);border-color:var(--ac);color:#fff}
+.days button.on{color:var(--ac);box-shadow:inset 0 -2px var(--ac);border-radius:0}
+main{padding:6px 12px 20px;max-width:640px;margin:auto}
+.day{font-size:12px;font-weight:700;color:var(--mu);text-transform:uppercase;letter-spacing:.04em;margin:14px 4px 6px}
+.m{display:grid;grid-template-columns:46px 1fr;gap:8px;align-items:center;background:var(--card);border:1px solid var(--ln);border-radius:12px;padding:10px 12px;margin-bottom:8px}
+.st{font-size:12px;font-weight:700;color:var(--mu);text-align:center}
+.st.lv{color:var(--lv);animation:b 1.4s infinite}
+@keyframes b{50%{opacity:.35}}
+.tm{display:flex;flex-direction:column;gap:6px}
+.tm>div{display:flex;justify-content:space-between;gap:8px}
+.tm .w{font-weight:700}
+.n{display:flex;align-items:center;gap:8px;min-width:0}
+.n img{width:20px;height:20px;object-fit:contain;flex:none}
+.empty,.msg{text-align:center;color:var(--mu);padding:36px 12px}
+.msg{background:var(--card);border:1px solid var(--ln);border-radius:12px;text-align:left;color:var(--tx);margin-top:12px}
+.msg code{background:var(--bg);padding:1px 5px;border-radius:4px}
+.ad{max-width:640px;margin:6px auto;padding:0 12px}
+.ad iframe{width:100%;border:0;display:block}
+footer{text-align:center;color:var(--mu);font-size:11px;padding:6px 16px 28px}
+</style>
+</head>
+<body>
+<header>
+<h1><span>⚽ LiveScore</span><span class="bt"><button id="inst" hidden>Install</button><button id="shr">Share</button></span></h1>
+<div class="tabs" id="tabs"></div>
+<div class="days" id="days"></div>
+</header>
+<div class="ad" id="adTop"></div>
+<main id="list"></main>
+<div class="ad" id="adBot"></div>
+<footer id="foot"></footer>
+<script>
+/* ===== SETTINGS: edit this block only ===== */
+var CONFIG={
+  API_KEY:"PASTE_YOUR_KEY_HERE",            // free key from football-data.org
+  BASE:"https://api.football-data.org/v4",  // change only if you use a proxy
+  AD_TOP:"",      // paste your ad network banner code here (between the quotes, use single quotes inside)
+  AD_BOTTOM:"",   // second banner code (optional)
+  AD_HEIGHT:60    // banner height in pixels (50, 60 or 90 are common)
+};
+/* ========================================= */
+var S={day:0,comp:"ALL",data:[],err:"",upd:0};
+function $(i){return document.getElementById(i)}
+function ymd(d){return d.toLocaleDateString("en-CA")}
+function dayOf(o){var d=new Date();d.setDate(d.getDate()+o);return ymd(d)}
+function esc(s){return String(s||"").replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]})}
+function dayLabel(o){if(o===0)return"Today";if(o===-1)return"Yesterday";if(o===1)return"Tomorrow";var d=new Date();d.setDate(d.getDate()+o);return d.toLocaleDateString([],{weekday:"short",day:"numeric"})}
+function card(m){
+  var s=m.status,live=s==="IN_PLAY"||s==="PAUSED",done=s==="FINISHED"||s==="AWARDED";
+  var st=live?(s==="PAUSED"?"HT":"LIVE"):done?"FT":s==="POSTPONED"?"PP":s==="CANCELLED"?"CAN":s==="SUSPENDED"?"SUS":new Date(m.utcDate).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"});
+  var h=m.score&&m.score.fullTime?m.score.fullTime.home:null,a=m.score&&m.score.fullTime?m.score.fullTime.away:null,has=h!==null&&h!==undefined;
+  function t(x,sc,w){return'<div class="'+(w?"w":"")+'"><span class="n"><img src="'+esc(x.crest)+'" alt="" loading="lazy" onerror="this.style.display=\'none\'">'+esc(x.shortName||x.name)+'</span><b>'+(has?sc:"")+'</b></div>'}
+  return'<div class="m"><div class="st'+(live?" lv":"")+'">'+st+'</div><div class="tm">'+t(m.homeTeam,h,done&&h>a)+t(m.awayTeam,a,done&&a>h)+'</div></div>';
+}
+function render(){
+  var dk=dayOf(S.day);
+  var ms=S.data.filter(function(m){return ymd(new Date(m.utcDate))===dk});
+  var cs={};ms.forEach(function(m){cs[m.competition.code]=m.competition.name});
+  if(S.comp!=="ALL"&&!cs[S.comp])S.comp="ALL";
+  var th='<button data-c="ALL" class="'+(S.comp==="ALL"?"on":"")+'">All</button>';
+  Object.keys(cs).forEach(function(k){th+='<button data-c="'+k+'" class="'+(S.comp===k?"on":"")+'">'+esc(cs[k])+'</button>'});
+  $("tabs").innerHTML=th;
+  var dh="";[-2,-1,0,1,2].forEach(function(o){dh+='<button data-d="'+o+'" class="'+(S.day===o?"on":"")+'">'+dayLabel(o)+'</button>'});
+  $("days").innerHTML=dh;
+  var out="";
+  if(S.err==="setup"){
+    out='<div class="msg"><b>One-time setup</b><br>1. Register free at <code>football-data.org/client/register</code> and copy the API token from your email.<br>2. Open <code>index.html</code>, paste the token where it says <code>PASTE_YOUR_KEY_HERE</code>, save.</div>';
+  }else{
+    var rows=ms.filter(function(m){return S.comp==="ALL"||m.competition.code===S.comp}).sort(function(a,b){return a.competition.name.localeCompare(b.competition.name)||new Date(a.utcDate)-new Date(b.utcDate)});
+    if(!rows.length)out='<div class="empty">'+(S.upd?"No matches on this day":"Loading scores…")+'</div>';
+    var last="";
+    rows.forEach(function(m){if(m.competition.name!==last){out+='<div class="day">'+esc(m.competition.name)+'</div>';last=m.competition.name}out+=card(m)});
+    if(S.err==="net")out='<div class="msg">Could not reach the score server. Showing the last saved scores. Pull down or tap a day to retry.</div>'+out;
+  }
+  $("list").innerHTML=out;
+  $("foot").textContent=S.upd?"Updated "+new Date(S.upd).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})+" · refreshes every minute":"";
+}
+async function load(){
+  if(CONFIG.API_KEY.indexOf("PASTE")===0){S.err="setup";render();return}
+  try{
+    var a=new Date();a.setDate(a.getDate()-3);var b=new Date();b.setDate(b.getDate()+4);
+    var r=await fetch(CONFIG.BASE+"/matches?dateFrom="+ymd(a)+"&dateTo="+ymd(b),{headers:{"X-Auth-Token":CONFIG.API_KEY}});
+    if(!r.ok)throw new Error(r.status);
+    var j=await r.json();S.data=j.matches||[];S.upd=Date.now();S.err="";
+    try{localStorage.setItem("ls",JSON.stringify({t:S.upd,m:S.data}))}catch(e){}
+  }catch(e){S.err="net"}
+  render();
+}
+$("tabs").onclick=function(e){var c=e.target.dataset.c;if(c){S.comp=c;render()}};
+$("days").onclick=function(e){var d=e.target.dataset.d;if(d!==undefined){S.day=+d;render()}};
+$("shr").onclick=function(){
+  var d={title:"LiveScore Football",text:"Live football scores for every league ⚽",url:location.href};
+  if(navigator.share)navigator.share(d).catch(function(){});
+  else if(navigator.clipboard)navigator.clipboard.writeText(location.href).then(function(){$("shr").textContent="Copied!"});
+};
+var dp=null;
+window.addEventListener("beforeinstallprompt",function(e){e.preventDefault();dp=e;$("inst").hidden=false});
+$("inst").onclick=function(){if(dp){dp.prompt();dp=null;$("inst").hidden=true}};
+/* Ads are loaded once and never re-created, so refreshes do not inflate impressions */
+function ad(id,code){if(!code)return;var f=document.createElement("iframe");f.style.height=CONFIG.AD_HEIGHT+"px";f.srcdoc='<body style="margin:0">'+code+'</body>';$(id).appendChild(f)}
+ad("adTop",CONFIG.AD_TOP);ad("adBot",CONFIG.AD_BOTTOM);
+try{var c=JSON.parse(localStorage.getItem("ls")||"null");if(c){S.data=c.m;S.upd=c.t}}catch(e){}
+render();load();
+setInterval(function(){if(!document.hidden)load()},60000);
+document.addEventListener("visibilitychange",function(){if(!document.hidden)load()});
+if("serviceWorker"in navigator)navigator.serviceWorker.register("sw.js").catch(function(){});
+</script>
+</body>
+</html>
